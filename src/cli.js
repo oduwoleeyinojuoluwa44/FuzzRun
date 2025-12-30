@@ -338,7 +338,11 @@ function tryBaseCorrection(command, args) {
   const suggestion = findBestMatch(PATH_COMMANDS, command, MAX_DISTANCE);
   if (suggestion && !DANGEROUS_BASE.has(suggestion.match) && suggestion.match !== command) {
     logFix(command, suggestion.match);
-    return run(suggestion.match, args);
+    return {
+      command: suggestion.match,
+      args,
+      result: run(suggestion.match, args)
+    };
   }
   return null;
 }
@@ -450,9 +454,31 @@ function main() {
   if (firstRun.error && firstRun.error.code === 'ENOENT') {
     const corrected = tryBaseCorrection(baseCommand, rest);
     if (corrected) {
-      process.stdout.write(corrected.stdout);
-      process.stderr.write(corrected.stderr);
-      process.exit(corrected.code);
+      const { result } = corrected;
+      if (result.code !== 0) {
+        const combinedOutput = `${result.stderr}\n${result.stdout}`;
+        const correctedSub = trySubcommandCorrection(corrected.command, corrected.args, combinedOutput);
+        if (correctedSub) {
+          process.stdout.write(correctedSub.stdout);
+          process.stderr.write(correctedSub.stderr);
+          process.exit(correctedSub.code);
+        }
+        const correctedScript = tryScriptCorrection(corrected.command, corrected.args, combinedOutput);
+        if (correctedScript) {
+          process.stdout.write(correctedScript.stdout);
+          process.stderr.write(correctedScript.stderr);
+          process.exit(correctedScript.code);
+        }
+        const correctedBranch = tryGitBranchCorrection(corrected.command, corrected.args, combinedOutput);
+        if (correctedBranch) {
+          process.stdout.write(correctedBranch.stdout);
+          process.stderr.write(correctedBranch.stderr);
+          process.exit(correctedBranch.code);
+        }
+      }
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
+      process.exit(result.code);
     }
     process.stderr.write(firstRun.error.message ? `${firstRun.error.message}\n` : `fuzzrun: command not found: ${baseCommand}\n`);
     process.exit(firstRun.code);
