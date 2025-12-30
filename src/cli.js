@@ -11,6 +11,32 @@ const MAX_DISTANCE = Number.isFinite(Number(process.env.FUZZRUN_MAX_DISTANCE))
   ? Math.max(1, Number(process.env.FUZZRUN_MAX_DISTANCE))
   : 1;
 
+const DEFAULT_PRIORITY_BASES = [
+  'git',
+  'npm',
+  'yarn',
+  'pnpm',
+  'node',
+  'python',
+  'python3',
+  'pip',
+  'pip3',
+  'docker',
+  'kubectl',
+  'gh',
+  'go',
+  'cargo',
+  'dotnet',
+  'java',
+  'mvn',
+  'gradle'
+];
+const ENV_PRIORITY_BASES = (process.env.FUZZRUN_PREFER_BASES || '')
+  .split(',')
+  .map((value) => normalizeToken(value).trim())
+  .filter(Boolean);
+const PRIORITY_BASES = new Set([...DEFAULT_PRIORITY_BASES, ...ENV_PRIORITY_BASES]);
+
 const DANGEROUS_BASE = new Set(['rm', 'mv', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff']);
 
 const COMMON_SUBCOMMANDS = {
@@ -254,18 +280,25 @@ function findBestMatch(candidates, target, maxDistance = MAX_DISTANCE) {
   if (!candidates || !target) return null;
   let best = null;
   let bestDistance = maxDistance + 1;
-  let tie = false;
+  let ties = [];
   for (const candidate of candidates || []) {
     const dist = damerauLevenshtein(candidate, target, maxDistance);
     if (dist < bestDistance) {
       best = candidate;
       bestDistance = dist;
-      tie = false;
+      ties = [candidate];
     } else if (dist === bestDistance) {
-      tie = true;
+      ties.push(candidate);
     }
   }
-  if (!best || bestDistance > maxDistance || tie) return null;
+  if (!best || bestDistance > maxDistance) return null;
+  if (ties.length > 1) {
+    const preferred = ties.filter((value) => PRIORITY_BASES.has(normalizeToken(value)));
+    if (preferred.length === 1) {
+      return { match: preferred[0], distance: bestDistance };
+    }
+    return null;
+  }
   return { match: best, distance: bestDistance };
 }
 

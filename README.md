@@ -45,6 +45,7 @@ function global:git { fuzzrun git @args } # optional git wrapper
 ### Config
 - `FUZZRUN_MAX_DISTANCE=1` (set to 2 if you want more aggressive matching)
 - `FUZZRUN_ALLOW_ANY_SUBCOMMANDS=1` (allow subcommand fixes for any base that prints suggestions)
+- `FUZZRUN_PREFER_BASES=git,npm,docker` (breaks ties in favor of preferred commands)
 
 ### Limits
 - Only one retry; only unique matches; no prompt.
