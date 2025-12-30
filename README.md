@@ -8,6 +8,12 @@ Auto-correct mistyped commands/subcommands and re-run them automatically (no pro
 node bin/fuzzrun.js git commmmit -m "msg"
 ```
 
+Install (npm):
+
+```
+npm i -g fuzzyrun
+```
+
 ### Bash/Zsh hook (auto-run on typos)
 
 Add to your shell rc:

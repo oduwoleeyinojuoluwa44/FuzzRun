@@ -1,5 +1,5 @@
 {
-  "name": "fuzzrun",
+  "name": "fuzzyrun",
   "version": "0.1.0",
   "description": "Auto-correct mistyped commands and subcommands and re-run them safely.",
   "bin": {
