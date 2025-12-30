@@ -7,6 +7,10 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+const MAX_DISTANCE = Number.isFinite(Number(process.env.FUZZRUN_MAX_DISTANCE))
+  ? Math.max(1, Number(process.env.FUZZRUN_MAX_DISTANCE))
+  : 1;
+
 const DANGEROUS_BASE = new Set(['rm', 'mv', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff']);
 
 const COMMON_SUBCOMMANDS = {
@@ -146,6 +150,28 @@ const COMMON_SUBCOMMANDS = {
   gh: ['auth', 'repo', 'issue', 'pr', 'gist', 'alias', 'api', 'search', 'run', 'workflow', 'status', 'label']
 };
 
+const SAFE_SUBCOMMAND_BASES = new Set(Object.keys(COMMON_SUBCOMMANDS));
+const ALLOW_ANY_SUBCOMMANDS = process.env.FUZZRUN_ALLOW_ANY_SUBCOMMANDS === '1';
+const SCRIPT_BASES = new Set(['npm', 'yarn', 'pnpm']);
+const RISKY_ARG_PATTERNS = [
+  /^-f$/,
+  /^-rf$/,
+  /^-fr$/,
+  /^--force$/i,
+  /^--hard$/i,
+  /^--delete$/i,
+  /^--purge$/i,
+  /^--no-preserve-root$/i
+];
+const SCRIPT_ERROR_PATTERNS = [
+  /missing script/i,
+  /unknown script/i,
+  /script.*not found/i,
+  /couldn'?t find.*script/i,
+  /command ".*" not found/i
+];
+const GIT_PATHSPEC_PATTERN = /pathspec .* did not match/i;
+
 const suggestionPatterns = [
   /The most similar command is\s+([^\s]+)/i,
   /The most similar commands are:\s*\n\s*([^\s]+)/i,
@@ -154,25 +180,40 @@ const suggestionPatterns = [
   /Perhaps you meant\s+['"]?([A-Za-z0-9:_-]+)['"]?\??/i
 ];
 
-function levenshtein(a, b, maxDistance = 2) {
-  if (Math.abs(a.length - b.length) > maxDistance) {
+function normalizeToken(value) {
+  return String(value || '').toLowerCase();
+}
+
+function damerauLevenshtein(a, b, maxDistance = 2) {
+  const aNorm = normalizeToken(a);
+  const bNorm = normalizeToken(b);
+  if (aNorm === bNorm) return 0;
+  if (Math.abs(aNorm.length - bNorm.length) > maxDistance) {
     return maxDistance + 1;
   }
-  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = 0; i <= a.length; i += 1) dp[i][0] = i;
-  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
-  for (let i = 1; i <= a.length; i += 1) {
+  const dp = Array.from({ length: aNorm.length + 1 }, () => new Array(bNorm.length + 1).fill(0));
+  for (let i = 0; i <= aNorm.length; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= bNorm.length; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= aNorm.length; i += 1) {
     let rowMin = maxDistance + 1;
-    for (let j = 1; j <= b.length; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-      if (dp[i][j] < rowMin) rowMin = dp[i][j];
+    for (let j = 1; j <= bNorm.length; j += 1) {
+      const cost = aNorm[i - 1] === bNorm[j - 1] ? 0 : 1;
+      let value = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+      if (i > 1 && j > 1 && aNorm[i - 1] === bNorm[j - 2] && aNorm[i - 2] === bNorm[j - 1]) {
+        value = Math.min(value, dp[i - 2][j - 2] + 1);
+      }
+      dp[i][j] = value;
+      if (value < rowMin) rowMin = value;
     }
     if (rowMin > maxDistance) {
       return maxDistance + 1;
     }
   }
-  return dp[a.length][b.length];
+  return dp[aNorm.length][bNorm.length];
 }
 
 function collectPathCommands() {
@@ -209,18 +250,23 @@ function collectPathCommands() {
 
 const PATH_COMMANDS = collectPathCommands();
 
-function bestMatch(candidates, target, maxDistance = 1) {
+function findBestMatch(candidates, target, maxDistance = MAX_DISTANCE) {
+  if (!candidates || !target) return null;
   let best = null;
   let bestDistance = maxDistance + 1;
+  let tie = false;
   for (const candidate of candidates || []) {
-    const dist = levenshtein(candidate, target, maxDistance);
-    if (dist <= maxDistance && dist < bestDistance) {
+    const dist = damerauLevenshtein(candidate, target, maxDistance);
+    if (dist < bestDistance) {
       best = candidate;
       bestDistance = dist;
-      if (dist === 0) break;
+      tie = false;
+    } else if (dist === bestDistance) {
+      tie = true;
     }
   }
-  return best;
+  if (!best || bestDistance > maxDistance || tie) return null;
+  return { match: best, distance: bestDistance };
 }
 
 function parseSuggestion(text) {
@@ -250,26 +296,109 @@ function logFix(from, to) {
   process.stderr.write(`fuzzrun: auto-correcting "${from}" -> "${to}"\n`);
 }
 
+function hasRiskyArgs(args) {
+  return args.some((arg) => RISKY_ARG_PATTERNS.some((pattern) => pattern.test(arg)));
+}
+
 function tryBaseCorrection(command, args) {
-  const suggestion = bestMatch(PATH_COMMANDS, command, 1);
-  if (suggestion && !DANGEROUS_BASE.has(suggestion) && suggestion !== command) {
-    logFix(command, suggestion);
-    return run(suggestion, args);
+  if (hasRiskyArgs(args)) return null;
+  const suggestion = findBestMatch(PATH_COMMANDS, command, MAX_DISTANCE);
+  if (suggestion && !DANGEROUS_BASE.has(suggestion.match) && suggestion.match !== command) {
+    logFix(command, suggestion.match);
+    return run(suggestion.match, args);
   }
   return null;
 }
 
 function trySubcommandCorrection(command, args, combinedOutput) {
+  if (!SAFE_SUBCOMMAND_BASES.has(command) && !ALLOW_ANY_SUBCOMMANDS) return null;
   if (!args.length) return null;
   const attemptedSub = args[0];
+  if (attemptedSub.startsWith('-')) return null;
+  if (hasRiskyArgs(args)) return null;
   const fromOutput = parseSuggestion(combinedOutput);
   const candidates = COMMON_SUBCOMMANDS[command] || [];
-  const fromDict = bestMatch(candidates, attemptedSub, 1);
-  const choice = fromOutput || fromDict;
+  const fromDict = findBestMatch(candidates, attemptedSub, MAX_DISTANCE);
+  const outputDistance = fromOutput
+    ? damerauLevenshtein(fromOutput, attemptedSub, MAX_DISTANCE)
+    : MAX_DISTANCE + 1;
+  const choice = outputDistance <= MAX_DISTANCE ? fromOutput : fromDict ? fromDict.match : null;
 
-  if (choice && choice !== attemptedSub && levenshtein(choice, attemptedSub, 1) <= 1) {
+  if (choice && choice !== attemptedSub && damerauLevenshtein(choice, attemptedSub, MAX_DISTANCE) <= MAX_DISTANCE) {
     logFix(`${command} ${attemptedSub}`, `${command} ${choice}`);
     return run(command, [choice, ...args.slice(1)]);
+  }
+  return null;
+}
+
+function findPackageJson(startDir) {
+  let current = startDir;
+  while (current && current !== path.dirname(current)) {
+    const candidate = path.join(current, 'package.json');
+    if (fs.existsSync(candidate)) return candidate;
+    current = path.dirname(current);
+  }
+  return null;
+}
+
+function getPackageScripts(cwd) {
+  const pkgPath = findPackageJson(cwd);
+  if (!pkgPath) return [];
+  try {
+    const raw = fs.readFileSync(pkgPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Object.keys(parsed.scripts || {});
+  } catch (err) {
+    return [];
+  }
+}
+
+function isScriptError(output) {
+  return SCRIPT_ERROR_PATTERNS.some((pattern) => pattern.test(output));
+}
+
+function tryScriptCorrection(command, args, combinedOutput) {
+  if (!SCRIPT_BASES.has(command)) return null;
+  if (args.length < 2) return null;
+  if (args[0] !== 'run') return null;
+  const scriptName = args[1];
+  if (!scriptName || scriptName.startsWith('-')) return null;
+  if (!isScriptError(combinedOutput)) return null;
+  if (hasRiskyArgs(args)) return null;
+
+  const scripts = getPackageScripts(process.cwd());
+  const match = findBestMatch(scripts, scriptName, MAX_DISTANCE);
+  if (match) {
+    logFix(`${command} run ${scriptName}`, `${command} run ${match.match}`);
+    return run(command, ['run', match.match, ...args.slice(2)]);
+  }
+  return null;
+}
+
+function getGitBranches() {
+  const result = spawnSync('git', ['branch', '--format=%(refname:short)'], { encoding: 'utf8' });
+  if (result.status !== 0) return [];
+  return (result.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function tryGitBranchCorrection(command, args, combinedOutput) {
+  if (command !== 'git') return null;
+  if (args.length < 2) return null;
+  const subcommand = args[0];
+  if (subcommand !== 'checkout' && subcommand !== 'switch') return null;
+  const branch = args[1];
+  if (!branch || branch.startsWith('-')) return null;
+  if (!GIT_PATHSPEC_PATTERN.test(combinedOutput)) return null;
+  if (hasRiskyArgs(args)) return null;
+
+  const branches = getGitBranches();
+  const match = findBestMatch(branches, branch, MAX_DISTANCE);
+  if (match) {
+    logFix(`${command} ${subcommand} ${branch}`, `${command} ${subcommand} ${match.match}`);
+    return run(command, [subcommand, match.match, ...args.slice(2)]);
   }
   return null;
 }
@@ -310,9 +439,27 @@ function main() {
     process.exit(correctedSub.code);
   }
 
+  const correctedScript = tryScriptCorrection(baseCommand, rest, combinedOutput);
+  if (correctedScript) {
+    process.stdout.write(correctedScript.stdout);
+    process.stderr.write(correctedScript.stderr);
+    process.exit(correctedScript.code);
+  }
+
+  const correctedBranch = tryGitBranchCorrection(baseCommand, rest, combinedOutput);
+  if (correctedBranch) {
+    process.stdout.write(correctedBranch.stdout);
+    process.stderr.write(correctedBranch.stderr);
+    process.exit(correctedBranch.code);
+  }
+
   process.stdout.write(firstRun.stdout);
   process.stderr.write(firstRun.stderr);
   process.exit(firstRun.code);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { main };

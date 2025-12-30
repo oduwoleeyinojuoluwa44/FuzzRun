@@ -1,0 +1,13 @@
+{
+  "name": "fuzzrun",
+  "version": "0.1.0",
+  "description": "Auto-correct mistyped commands and subcommands and re-run them safely.",
+  "bin": {
+    "fuzzrun": "bin/fuzzrun.js"
+  },
+  "type": "commonjs",
+  "license": "MIT",
+  "scripts": {
+    "start": "node bin/fuzzrun.js"
+  }
+}
