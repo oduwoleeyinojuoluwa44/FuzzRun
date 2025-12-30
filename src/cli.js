@@ -6,6 +6,7 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const installer = require('./installer');
 
 const MAX_DISTANCE = Number.isFinite(Number(process.env.FUZZRUN_MAX_DISTANCE))
   ? Math.max(1, Number(process.env.FUZZRUN_MAX_DISTANCE))
@@ -445,6 +446,27 @@ function main() {
   if (!argv.length) {
     process.stderr.write('Usage: fuzzrun <command> [args...]\n');
     process.exit(1);
+  }
+
+  const action = argv[0];
+  if (action === 'enable') {
+    const results = installer.enable({});
+    const updated = results.some((item) => item.updated);
+    process.stdout.write(updated ? 'FuzzRun enabled. Restart your shell to apply changes.\n' : 'FuzzRun already enabled.\n');
+    process.exit(0);
+  }
+  if (action === 'disable') {
+    const results = installer.disable();
+    const updated = results.some((item) => item.updated);
+    process.stdout.write(updated ? 'FuzzRun disabled. Restart your shell to apply changes.\n' : 'FuzzRun already disabled.\n');
+    process.exit(0);
+  }
+  if (action === 'status') {
+    const results = installer.status();
+    for (const item of results) {
+      process.stdout.write(`${item.enabled ? 'enabled' : 'disabled'}: ${item.path}\n`);
+    }
+    process.exit(0);
   }
 
   const baseCommand = argv[0];

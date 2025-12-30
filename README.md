@@ -11,8 +11,13 @@ node bin/fuzzrun.js git commmmit -m "msg"
 Install (npm):
 
 ```
-npm i -g fuzzyrun
+npm i -g fuzzrunx
 ```
+
+On global install, FuzzRun auto-enables shell hooks and will print:
+`FuzzRun is automatically enabled. Run "fuzzrun disable" to deactivate.`
+
+If you want to skip auto-enable, set `FUZZRUN_SKIP_ENABLE=1` during install.
 
 ### Bash/Zsh hook (auto-run on typos)
 
@@ -40,6 +45,11 @@ $ExecutionContext.InvokeCommand.CommandNotFoundAction = {
 }
 function global:git { fuzzrun git @args } # optional git wrapper
 ```
+
+### Manage hooks
+- `fuzzrun enable` (add hooks to your shell profile)
+- `fuzzrun disable` (remove hooks)
+- `fuzzrun status` (show which profiles are enabled)
 
 ### How it works
 - Runs the command once; if it fails with "command not found" or "unknown subcommand", tries a one-edit-away fix or the CLI's own suggestion and re-runs automatically.
