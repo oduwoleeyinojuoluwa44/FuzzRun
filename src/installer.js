@@ -58,18 +58,64 @@ function buildPowerShellSnippet(binPath) {
   const lines = [
     MARKER_START,
     `$fuzzrun = "${binPath}"`,
+    '$global:FuzzRunLastLine = $null',
+    'if (Get-Module -ListAvailable -Name PSReadLine) {',
+    '    try {',
+    '        Import-Module PSReadLine -ErrorAction SilentlyContinue | Out-Null',
+    '        Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {',
+    '            param($key, $arg)',
+    '            $line = $null',
+    '            $cursor = $null',
+    '            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)',
+    '            $global:FuzzRunLastLine = $line',
+    '            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()',
+    '        }',
+    '    } catch {}',
+    '}',
     'function global:fuzzrun { node $fuzzrun @args }',
     '$ExecutionContext.InvokeCommand.CommandNotFoundAction = {',
     '    param($commandName, $eventArgs)',
     '    $cmd = $commandName',
-    '    $args = @($eventArgs.Arguments)',
-    '    $eventArgs.CommandScriptBlock = { fuzzrun $cmd @args }.GetNewClosure()',
+    '    $fzArgs = @($eventArgs.Arguments)',
+    '    $line = $global:FuzzRunLastLine',
+    '    $global:FuzzRunLastLine = $null',
+    '    if (-not $line -and $eventArgs.CommandLine) {',
+    '        $line = $eventArgs.CommandLine',
+    '    }',
+    '    if (-not $line -and $eventArgs.CommandScriptBlock) {',
+    '        $line = $eventArgs.CommandScriptBlock.ToString()',
+    '    }',
+    '    if (-not $line) {',
+    '        $history = Get-History -Count 1 -ErrorAction SilentlyContinue',
+    '        if ($history) { $line = $history.CommandLine }',
+    '    }',
+    '    $argv = @()',
+    '    if ($line) {',
+    '        $tokens = [System.Management.Automation.PSParser]::Tokenize($line, [ref]$null)',
+    "        foreach ($token in $tokens) {",
+    "            if ($token.Type -in @('Command','CommandArgument','CommandParameter','String','Number')) {",
+    '                $argv += $token.Content',
+    '            }',
+    '        }',
+    '    }',
+    '    if ($argv.Count -gt 0) {',
+    '        $cmd = $argv[0]',
+    '    }',
+    '    if ($argv.Count -gt 1) {',
+    '        $fzArgs = $argv[1..($argv.Count - 1)]',
+    '    }',
+    '    $eventArgs.CommandScriptBlock = { fuzzrun $cmd @fzArgs }.GetNewClosure()',
     '    $eventArgs.StopSearch = $true',
     '}'
   ];
-  for (const base of WRAP_BASES) {
-    lines.push(`function global:${base} { fuzzrun ${base} @args }`);
-  }
+  lines.push(`$__fuzzrunBases = @(${WRAP_BASES.map((base) => `'${base}'`).join(', ')})`);
+  lines.push('foreach ($base in $__fuzzrunBases) {');
+  lines.push('    $resolved = Get-Command $base -ErrorAction SilentlyContinue | Where-Object { $_.CommandType -eq "Application" } | Select-Object -First 1');
+  lines.push('    if ($resolved) {');
+  lines.push('        $cmdName = $base');
+  lines.push('        Set-Item -Path ("Function:$cmdName") -Value { fuzzrun $cmdName @args }.GetNewClosure()');
+  lines.push('    }');
+  lines.push('}');
   lines.push(MARKER_END, '');
   return lines.join('\n');
 }
