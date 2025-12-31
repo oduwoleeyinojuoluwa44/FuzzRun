@@ -14,7 +14,7 @@ Install (npm):
 npm i -g fuzzrunx
 ```
 
-On global install, FuzzRun auto-enables shell hooks and will print:
+On install, FuzzRun auto-enables shell hooks and will print:
 `FuzzRun is automatically enabled. Run "fuzzrun disable" to deactivate.`
 
 If you want to skip auto-enable, set `FUZZRUN_SKIP_ENABLE=1` during install.
