@@ -277,6 +277,19 @@ function collectPathCommands() {
 
 const PATH_COMMANDS = collectPathCommands();
 
+function normalizePowerShellGetPrefix(command) {
+  if (!command) return command;
+  const lowered = normalizeToken(command);
+  if (!lowered.startsWith('get-')) return command;
+  if (PATH_COMMANDS.has(command) || PATH_COMMANDS.has(lowered)) return command;
+  const stripped = command.slice(4);
+  if (!stripped) return command;
+  if (PATH_COMMANDS.has(stripped)) return stripped;
+  const match = findBestMatch(PATH_COMMANDS, stripped, MAX_DISTANCE);
+  if (match) return stripped;
+  return command;
+}
+
 function findBestMatch(candidates, target, maxDistance = MAX_DISTANCE) {
   if (!candidates || !target) return null;
   let best = null;
@@ -485,8 +498,9 @@ function main() {
     }
   }
 
-  const baseCommand = argv[0];
+  let baseCommand = argv[0];
   const rest = argv.slice(1);
+  baseCommand = normalizePowerShellGetPrefix(baseCommand);
   const firstRun = run(baseCommand, rest);
 
   if (firstRun.error && firstRun.error.code === 'ENOENT') {

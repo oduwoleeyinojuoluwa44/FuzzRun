@@ -61,7 +61,10 @@ function buildPowerShellSnippet(binPath) {
     'function global:fuzzrun { node $fuzzrun @args }',
     '$ExecutionContext.InvokeCommand.CommandNotFoundAction = {',
     '    param($commandName, $eventArgs)',
-    '    fuzzrun $commandName @($eventArgs.Arguments)',
+    '    $cmd = $commandName',
+    '    $args = @($eventArgs.Arguments)',
+    '    $eventArgs.CommandScriptBlock = { fuzzrun $cmd @args }.GetNewClosure()',
+    '    $eventArgs.StopSearch = $true',
     '}'
   ];
   for (const base of WRAP_BASES) {
