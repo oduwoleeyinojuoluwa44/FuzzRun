@@ -27,10 +27,21 @@ function getBinPath(packageRoot) {
 function getProfileTargets() {
   const home = os.homedir();
   if (process.platform === 'win32') {
-    return [
-      path.join(home, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
-      path.join(home, 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1')
-    ];
+    const roots = new Set([path.join(home, 'Documents')]);
+    const oneDriveRoots = [
+      process.env.OneDrive,
+      process.env.OneDriveConsumer,
+      process.env.OneDriveCommercial
+    ].filter(Boolean);
+    for (const root of oneDriveRoots) {
+      roots.add(path.basename(root).toLowerCase() === 'documents' ? root : path.join(root, 'Documents'));
+    }
+    const targets = [];
+    for (const root of roots) {
+      targets.push(path.join(root, 'PowerShell', 'Microsoft.PowerShell_profile.ps1'));
+      targets.push(path.join(root, 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'));
+    }
+    return [...new Set(targets)];
   }
   return [path.join(home, '.bashrc'), path.join(home, '.zshrc')];
 }
