@@ -1,6 +1,6 @@
 {
   "name": "fuzzrunx",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Auto-correct mistyped commands and subcommands and re-run them safely.",
   "bin": {
     "fuzzrun": "bin/fuzzrun.js"
