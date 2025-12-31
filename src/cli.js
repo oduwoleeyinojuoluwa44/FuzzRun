@@ -469,6 +469,22 @@ function main() {
     process.exit(0);
   }
 
+  if (process.env.FUZZRUN_SKIP_ENABLE !== '1') {
+    try {
+      const status = installer.status();
+      const anyEnabled = status.some((item) => item.enabled);
+      if (!anyEnabled) {
+        const results = installer.enable({});
+        const updated = results.some((item) => item.updated);
+        if (updated) {
+          process.stdout.write('FuzzRun auto-enabled. Restart your shell to apply changes.\n');
+        }
+      }
+    } catch (err) {
+      process.stderr.write(`fuzzrun: auto-enable failed: ${err.message}\n`);
+    }
+  }
+
   const baseCommand = argv[0];
   const rest = argv.slice(1);
   const firstRun = run(baseCommand, rest);

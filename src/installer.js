@@ -102,6 +102,9 @@ function removeProfileSnippet(filePath) {
 
 function pickTargets() {
   const targets = getProfileTargets();
+  if (process.platform === 'win32') {
+    return targets;
+  }
   const existing = targets.filter((target) => fs.existsSync(target));
   if (existing.length) return existing;
   return [targets[0]];
