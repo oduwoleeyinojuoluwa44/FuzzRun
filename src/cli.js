@@ -5,6 +5,7 @@
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const installer = require('./installer');
 
@@ -206,6 +207,44 @@ const suggestionPatterns = [
   /Unknown command\s+['"]?([A-Za-z0-9:_-]+)['"]?\??/i,
   /Perhaps you meant\s+['"]?([A-Za-z0-9:_-]+)['"]?\??/i
 ];
+
+function getStatePath() {
+  return path.join(os.homedir(), '.fuzzrun', 'state.json');
+}
+
+function readState() {
+  try {
+    const raw = fs.readFileSync(getStatePath(), 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeState(next) {
+  try {
+    const filePath = getStatePath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(next, null, 2), 'utf8');
+  } catch (err) {
+    // Best-effort only.
+  }
+}
+
+function showInstallBannerOnce() {
+  const state = readState() || {};
+  if (state.bannerShown) return;
+  const message =
+    state.enableSucceeded === false
+      ? 'FuzzRun auto-enable failed during install. Run "fuzzrun enable" to activate.\n'
+      : 'FuzzRun is automatically enabled. Run "fuzzrun disable" to deactivate.\n';
+  process.stderr.write(message);
+  state.bannerShown = true;
+  if (typeof state.enableSucceeded === 'undefined') {
+    state.enableSucceeded = true;
+  }
+  writeState(state);
+}
 
 function normalizeToken(value) {
   return String(value || '').toLowerCase();
@@ -460,6 +499,8 @@ function main() {
     process.stderr.write('Usage: fuzzrun <command> [args...]\n');
     process.exit(1);
   }
+
+  showInstallBannerOnce();
 
   const action = argv[0];
   if (action === 'enable') {
