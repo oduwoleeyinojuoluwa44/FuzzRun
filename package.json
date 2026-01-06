@@ -1,6 +1,6 @@
 {
   "name": "fuzzrunx",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Auto-correct mistyped commands and subcommands and re-run them safely.",
   "bin": {
     "fuzzrun": "bin/fuzzrun.js"
@@ -9,6 +9,7 @@
   "license": "MIT",
   "scripts": {
     "start": "node bin/fuzzrun.js",
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "postuninstall": "node scripts/postuninstall.js"
   }
 }

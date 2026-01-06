@@ -19,6 +19,7 @@ On install, FuzzRun auto-enables shell hooks and will print:
 
 If you want to skip auto-enable, set `FUZZRUN_SKIP_ENABLE=1` during install.
 If auto-enable didn't run (scripts disabled or local install), running any command with `fuzzrun` will attempt a one-time auto-enable unless `FUZZRUN_SKIP_ENABLE=1` is set.
+On uninstall, FuzzRun automatically removes its shell hooks.
 
 ### Bash/Zsh hook (auto-run on typos)
 

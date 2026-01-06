@@ -231,9 +231,16 @@ function writeState(next) {
   }
 }
 
+function updateState(patch) {
+  const state = readState() || {};
+  const next = { ...state, ...patch };
+  writeState(next);
+  return next;
+}
+
 function showInstallBannerOnce() {
   const state = readState() || {};
-  if (state.bannerShown) return;
+  if (state.bannerShown || state.disabled) return;
   const message =
     state.enableSucceeded === false
       ? 'FuzzRun auto-enable failed during install. Run "fuzzrun enable" to activate.\n'
@@ -507,12 +514,14 @@ function main() {
     const results = installer.enable({});
     const updated = results.some((item) => item.updated);
     process.stdout.write(updated ? 'FuzzRun enabled. Restart your shell to apply changes.\n' : 'FuzzRun already enabled.\n');
+    updateState({ disabled: false, enableSucceeded: true });
     process.exit(0);
   }
   if (action === 'disable') {
     const results = installer.disable();
     const updated = results.some((item) => item.updated);
     process.stdout.write(updated ? 'FuzzRun disabled. Restart your shell to apply changes.\n' : 'FuzzRun already disabled.\n');
+    updateState({ disabled: true });
     process.exit(0);
   }
   if (action === 'status') {
@@ -523,7 +532,8 @@ function main() {
     process.exit(0);
   }
 
-  if (process.env.FUZZRUN_SKIP_ENABLE !== '1') {
+  const state = readState() || {};
+  if (!state.disabled && process.env.FUZZRUN_SKIP_ENABLE !== '1') {
     try {
       const status = installer.status();
       const anyEnabled = status.some((item) => item.enabled);
