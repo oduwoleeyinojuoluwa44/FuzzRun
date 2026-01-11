@@ -239,6 +239,7 @@ function updateState(patch) {
 }
 
 function showInstallBannerOnce() {
+  if (process.env.FUZZRUN_SKIP_ENABLE === '1') return;
   const state = readState() || {};
   if (state.bannerShown || state.disabled) return;
   const message =
@@ -583,7 +584,7 @@ function main() {
       process.stderr.write(result.stderr);
       process.exit(result.code);
     }
-    process.stderr.write(firstRun.error.message ? `${firstRun.error.message}\n` : `fuzzrun: command not found: ${baseCommand}\n`);
+    process.stderr.write(`fuzzrun: command not found: ${baseCommand}\n`);
     process.exit(firstRun.code);
   }
 
