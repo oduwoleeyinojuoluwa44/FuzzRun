@@ -100,6 +100,27 @@ test('explain previews a base fix without running it and records nothing', () =>
   }
 });
 
+test('runs a Windows .cmd shim via the shell instead of failing with ENOENT', { skip: process.platform !== 'win32' }, () => {
+  const home = makeTempHome();
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fuzzrun-bin-'));
+  fs.writeFileSync(path.join(binDir, 'frhello.cmd'), '@echo off\r\necho HELLO_FROM_CMD %*\r\n');
+  try {
+    const result = runFuzzrun(['frhello', 'world'], {
+      FUZZRUN_SKIP_ENABLE: '1',
+      HOME: home,
+      USERPROFILE: home,
+      PATH: `${binDir}${path.delimiter}${process.env.PATH}`
+    });
+
+    assert.equal(result.status, 0);
+    assert.ok(result.stdout.includes('HELLO_FROM_CMD'));
+    assert.ok(result.stdout.includes('world'));
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test('auto-corrects a mistyped base command and records it for stats', () => {
   const home = makeTempHome();
   try {

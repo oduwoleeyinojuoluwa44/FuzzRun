@@ -492,11 +492,75 @@ function parseSuggestion(text) {
   return null;
 }
 
+// Resolve a bare command name to a real file on Windows using PATH + PATHEXT.
+// Returns { file, ext } or null. On non-Windows we let the OS resolve it.
+function resolveWindowsExecutable(cmd) {
+  if (process.platform !== 'win32' || !cmd) return null;
+  const exts = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map((e) => e.trim())
+    .filter(Boolean);
+  const hasExt = path.extname(cmd) !== '';
+  // Explicit path: trust it as-is, report its extension.
+  if (cmd.includes('\\') || cmd.includes('/')) {
+    try {
+      if (fs.statSync(cmd).isFile()) return { file: cmd, ext: path.extname(cmd).toLowerCase() };
+    } catch (err) {
+      // fall through
+    }
+    return null;
+  }
+  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    if (hasExt) {
+      const candidate = path.join(dir, cmd);
+      try {
+        if (fs.statSync(candidate).isFile()) return { file: candidate, ext: path.extname(cmd).toLowerCase() };
+      } catch (err) {
+        // keep looking
+      }
+    } else {
+      for (const ext of exts) {
+        const candidate = path.join(dir, cmd + ext);
+        try {
+          if (fs.statSync(candidate).isFile()) return { file: candidate, ext: ext.toLowerCase() };
+        } catch (err) {
+          // keep looking
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Quote a single argument for a Windows command line (CRT argv rules) so args
+// with spaces or quotes survive being passed through cmd.exe.
+function winQuoteArg(arg) {
+  const s = String(arg);
+  if (s === '') return '""';
+  if (!/[\s"]/.test(s)) return s;
+  const escaped = s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1');
+  return `"${escaped}"`;
+}
+
 function run(cmd, args) {
-  const result = spawnSync(cmd, args, {
-    encoding: 'utf8',
-    stdio: ['inherit', 'pipe', 'pipe']
-  });
+  let spawnCmd = cmd;
+  let spawnArgs = args;
+  const options = { encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] };
+
+  const resolved = resolveWindowsExecutable(cmd);
+  if (resolved && (resolved.ext === '.cmd' || resolved.ext === '.bat')) {
+    // Batch shims (npm/yarn/pnpm and friends) can only run via the command
+    // processor; build a quoted command line and let the shell execute it.
+    spawnCmd = [winQuoteArg(resolved.file), ...args.map(winQuoteArg)].join(' ');
+    spawnArgs = [];
+    options.shell = true;
+  } else if (resolved) {
+    // Spawn the real executable directly for perfect argument fidelity.
+    spawnCmd = resolved.file;
+  }
+
+  const result = spawnSync(spawnCmd, spawnArgs, options);
   return {
     code: typeof result.status === 'number' ? result.status : result.error ? 1 : 0,
     stdout: result.stdout || '',
